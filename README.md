@@ -1,317 +1,356 @@
-<div align="center">
-  <img src="./assets/harl_logo.jpg" width="300px" height="auto"/>
-</div>
+# HAPPO on Two-Player Sokoban — Demo README
 
-<h1 align="center"> Heterogeneous-Agent Reinforcement Learning </h1>
+This repository demonstrates training the **HAPPO** algorithm from the HARL framework on a **two-player Sokoban** environment. The goal is to train two cooperative agents to push all boxes onto target locations in a grid room.
 
-This repository contains the **official implementation** of **Heterogeneous-Agent Reinforcement Learning (HARL)** algorithms, including **HAPPO**, **HATRPO**, **HAA2C**, **HADDPG**, **HATD3**, **HAD3QN**, and **HASAC**, based on PyTorch. ***HARL algorithms are markedly different from MAPPO in that they are generally applicable to heterogeneous agents and are supported by rigorous theories, often achieving superior performance.*** This repository allows researchers and practitioners to easily reproduce our results on seven challenging benchmarks or apply HARL algorithms to their intended applications.
+The demo covers:
+- Easy levels: `5×5` with 1 and 2 boxes
+- Hard levels: `7×7` with 1 and 2 boxes
+- Curriculum transfer: using a trained `7×7-1box` model to bootstrap `7×7-2box`
+- Evaluation and visualization of trained policies
 
+Hardware used for this demo: a single NVIDIA RTX 5060 (8 GB VRAM), 4 parallel rollout threads.
 
+---
 
-## Overview
+## 1. Project Overview
 
-HARL algorithms are our novel solutions to achieving effective multi-agent cooperation in the general *heterogeneous-agent* settings, without relying on the restrictive *parameter-sharing* trick. 
+| Component | Description |
+|-----------|-------------|
+| Algorithm | HAPPO (Heterogeneous-Agent Proximal Policy Optimization) |
+| Environment | Two-player Sokoban via `gym-sokoban` |
+| State | Symbolic grid: walls, goals, boxes, player 1, player 2 |
+| Action | Each agent: `Discrete(9)` (NOOP / push up,down,left,right / move up,down,left,right) |
+| Reward | `-0.1` per step, `+1` for box on target, `+10` for solving, optional timeout penalty |
 
-### Key features
+One HARL step executes **two underlying environment steps** (player 1 moves, then player 2 moves). Therefore `max_steps` should be at least `2 × episode_length`.
 
-- HARL algorithms achieve coordinated agent updates by employing the *sequential update scheme*, different from the *simultaneous update scheme* utilized by MAPPO and MADDPG.
-- HARL algorithms enjoy theoretical guarantees of **monotonic improvement** and **convergence to equilibrium**, ensuring their efficacy in promoting cooperative behavior among agents.
-- Both on-policy and off-policy HARL algorithms, exemplified by **HAPPO** and **HASAC** respectively, demonstrate superior performance across a wide range of benchmarks.
+---
 
-The following figure is an illustration of the *sequential update scheme*
-<div align="center">
-  <img src="./assets/maad_sus_8_20_have_white_background.jpg" width="100%"/>
-</div>
+## 2. Environment Setup
 
-For more details, please refer to our [HARL](https://jmlr.org/papers/v25/23-0488.html) (JMLR 2024) and [MEHARL](https://openreview.net/forum?id=tmqOhBC4a5) (ICLR 2024 spotlight) papers.
+### 2.1 Prerequisites
 
+- Python >= 3.8
+- CUDA-capable GPU (tested on RTX 5060 8 GB)
+- Windows / Linux
 
-## Installation
+### 2.2 Install Dependencies
 
-### Install HARL
+```bash
+# Create a virtual environment (recommended)
+python -m venv venv
 
-```shell
-conda create -n harl python=3.8
-conda activate harl
-# Install pytorch>=1.9.0 (CUDA>=11.0) manually
-git clone https://github.com/PKU-MARL/HARL.git
-cd HARL
+# On Windows
+venv\Scripts\activate
+
+# On Linux/Mac
+source venv/bin/activate
+
+# Install base HARL package
 pip install -e .
+
+# Install Sokoban environment and visualization tools
+pip install gym-sokoban imageio matplotlib
 ```
 
+> Note: `gym-sokoban` uses the older `gym` API. The wrapper in `harl/envs/sokoban/` handles the compatibility layer.
 
+### 2.3 Verify Installation
 
-### Install Environments Dependencies
-
-Along with HARL algorithms, we also implement the interfaces for seven common environments ([SMAC](https://github.com/oxwhirl/smac), [SMACv2](https://github.com/oxwhirl/smacv2), [MAMuJoCo](https://github.com/schroederdewitt/multiagent_mujoco), [MPE](https://pettingzoo.farama.org/environments/mpe/), [Google Research Football](https://github.com/google-research/football), [Bi-DexterousHands](https://github.com/PKU-MARL/DexterousHands), [Light Aircraft Game](https://github.com/liuqh16/CloseAirCombat)) and they can be used directly. (We also implement the interface for [Gym](https://www.gymlibrary.dev/). Gym is a single-agent environment, which can be seen as a special case of multi-agent environments. It is included mainly for reference purposes.) You may choose to install the dependencies to the environments you want to use. **After the installation, please follow the steps in the ["Solve Dependencies"](https://github.com/PKU-MARL/HARL?tab=readme-ov-file#solve-dependencies) section.**
-
-**Install Dependencies of Bi-DexterousHands**
-
-Bi-DexterousHands depend on IsaacGym. The hardware requirements of IsaacGym has to be satisfied. To install IsaacGym, download IsaacGym Preview 4 release from [its official website](https://developer.nvidia.com/isaac-gym/download). Then run `pip install -e .` under its `python` folder.
-
-**Install Light Aircraft Game**
-
-[Light Aircraft Game](https://github.com/liuqh16/CloseAirCombat) (LAG) is a recently developed cooperative-competitive environment for red and blue aircraft games, offering various settings such as single control, 1v1, and 2v2 scenarios. In the context of multi-agent scenarios, LAG currently supports self-play only for 2v2 settings. To address this limitation, we introduce novel cooperative non-weapon and shoot-missile tasks where two agents collaborate to combat two opponents controlled by the built-in AI. In the non-weapon task, agents are trained to fly towards the opponents' tails while maintaining a suitable distance. In the shoot-missile task, agents learn to dodge opponent missiles and launch their own missiles to destroy the opponents.
-
-To install LAG, run the following command:
-```shell
-# Install dependencies
-pip install torch pymap3d jsbsim==1.1.6 geographiclib gym==0.21.0 wandb icecream setproctitle
-# Initialize submodules(*JSBSim-Team/jsbsim*)
-git submodule init
-git submodule update
+```bash
+python -c "from harl.envs.sokoban.sokoban_env import SokobanEnv; print('Sokoban env OK')"
+python -c "import torch; print(torch.cuda.get_device_name(0))"
 ```
 
-**Install Google Research Football**
+---
 
-Please follow [the official instructions](https://github.com/google-research/football) to install Google Research Football.
+## 3. Quick Start
 
-**Install SMAC**
+The main training entry point is `examples/train.py`. A typical command looks like:
 
-Please follow [the official instructions](https://github.com/oxwhirl/smac) to install SMAC. We use StarCraft II version 4.10 on Linux.
-
-**Install SMACv2**
-
-Please follow [the official instructions](https://github.com/oxwhirl/smacv2) to install SMACv2.
-
-**Install MPE**
-
-```shell
-pip install pettingzoo==1.22.2
-pip install supersuit==3.7.0
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name <run_name> ^
+  --dim_room [H,W] --num_boxes N --max_steps M ^
+  --hidden_sizes [256,256] --lr 0.0005 --critic_lr 0.0005 ^
+  --entropy_coef 0.1 --n_rollout_threads 4 --episode_length 100 ^
+  --num_env_steps 200000
 ```
 
-**Install Gym Suite (Except MuJoCo)**
+On Linux/Mac replace the trailing `^` with `\`.
 
-```shell
-# Install gym
-pip install gym
-# Install classic control
-pip install gym[classic_control]
-# Install box2d
-conda install -c anaconda swig
-pip install gym[box2d]
-# Install atari
-pip install --upgrade pip setuptools wheel
-pip install opencv-python
-pip install atari-py
-pip install gym[atari]
-pip install autorom[accept-rom-license]
+Results are saved under:
+
+```text
+results/sokoban/TwoPlayerSokoban-<H>x<W>-<N>boxes/happo/<exp_name>/<seed>/
 ```
 
-**Install MuJoCo**
+Each run contains:
+- `config.json` — full hyperparameter snapshot
+- `progress.txt` — training/evaluation reward curve
+- `models/` — saved checkpoints (`actor_agent0.pt`, `actor_agent1.pt`, `critic_agent.pt`, `value_normalizer.pt`)
+- `logs/` — TensorBoard summaries
 
-First, follow the instructions on https://github.com/openai/mujoco-py, https://www.roboti.us/, and https://github.com/deepmind/mujoco to download the right version of mujoco you need.
+---
 
-Second, `mkdir ~/.mujoco`.
+## 4. Training Recipes
 
-Third, move the .tar.gz or .zip to `~/.mujoco`, and extract it using `tar -zxvf` or `unzip`.
+All commands below assume Windows CMD line continuation (`^`).
 
-Fourth, add the following line to the `.bashrc`:
+### 4.1 Baseline: 5×5 with 1 box (fast convergence)
 
-```shell
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/home/<user>/.mujoco/<folder-name, e.g. mujoco210, mujoco-2.2.1>/bin
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_easy ^
+  --num_env_steps 200000 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --hidden_sizes [256,256] ^
+  --entropy_coef 0.1 ^
+  --dim_room [5,5] ^
+  --num_boxes 1
 ```
 
-Fifth, run the following command:
+Expected result: converges to ~+11 reward in ~50k–100k steps.
 
-```shell
-sudo apt install libosmesa6-dev libgl1-mesa-glx libglfw3
-pip install mujoco
-pip install gym[mujoco]
-sudo apt-get update -y
-sudo apt-get install -y patchelf
+### 4.2 5×5 with 2 boxes
+
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_diff ^
+  --num_env_steps 1000000 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --hidden_sizes [256,256] ^
+  --entropy_coef 0.1 ^
+  --dim_room [5,5] ^
+  --num_boxes 2
 ```
 
-**Install Dependencies of MAMuJoCo**
+Expected result: converges to ~+12 reward in ~300k–500k steps.
 
-First follow the instructions above to install MuJoCo. Then run the following commands.
+### 4.3 7×7 with 1 box (pre-training for hard task)
 
-```shell
-pip install "mujoco-py>=2.1.2.14"
-pip install "Jinja2>=3.0.3"
-pip install "glfw>=2.5.1"
-pip install "Cython>=0.29.28"
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_7x7_1box_final ^
+  --dim_room [7,7] --num_boxes 1 --max_steps 200 ^
+  --timeout_penalty 10.0 ^
+  --hidden_sizes [256,256] --lr 0.0003 --critic_lr 0.0003 ^
+  --entropy_coef 0.05 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --num_env_steps 5000000
 ```
 
-Note that [mujoco-py](https://github.com/openai/mujoco-py) is compatible with `mujoco210` (see [this](https://github.com/openai/mujoco-py#install-mujoco)). So please make sure to download `mujoco210` and extract it into the right place.
+Expected result: evaluation reward reaches ~+10 to +11 after 3M–5M steps.
 
+### 4.4 7×7 with 2 boxes via curriculum transfer
 
+After training `7×7-1box`, fine-tune on `7×7-2box`. Replace `<1box_model_dir>` with the path from Section 4.3, e.g.:
 
-### Solve Dependencies
-
-After the installation above, run the following commands to solve dependencies.
-
-```shell
-pip install gym==0.21.0
-pip install pyglet==1.5.0
-pip install importlib-metadata==4.13.0
+```text
+results/sokoban/TwoPlayerSokoban-7x7-1boxes/happo/sokoban_7x7_1box_final/seed-00001-YYYY-MM-DD-HH-MM-SS/models
 ```
 
-If you encounter issues when using `pip install gym==0.21.0`, try using the following command instead:
+**Stage 1 — fine-tune with high exploration:**
 
-```
-conda install -c conda-forge gym=0.21.0
-```
-
-
-
-
-## Usage
-
-### Training on Existing Environments
-
-To train an algorithm on a provided environment, users can modify yaml configuration files of the corresponding algorithm and environment under `harl/configs/algos_cfgs` and `harl/configs/envs_cfgs` as they wish, go to `examples` folder, and then start training with a one-liner `python train.py --algo <ALGO> --env <ENV> --exp_name <EXPERIMENT NAME>` or `python train.py --load_config <CONFIG FILE PATH> --exp_name <EXPERIMENT NAME>`, where the latter is mostly used when reproducing an experiment. We provide the **tuned configurations** for algorithms in each environments under `tuned_configs` folder. Users can **reproduce our results** by using `python train.py --load_config <TUNED CONFIG PATH> --exp_name <EXPERIMENT NAME>` and change `<TUNED CONFIG PATH>` to the absolute path of the tuned config file on their machine.
-
-During training, users receive continuous logging feedback in the terminal.
-
-After training, users can check the log file, tensorboard output, experiment configuration, and saved models under the generated `results` folder. Moreover, users can also render the trained models by setting `use_render: True`, `model_dir: <path to trained models>` in algorithm configuration file (for football users also need to set `render: True` in the environment configuration file), and use the same training command as above again. For SMAC and SMACv2, rendering comes in the form of video replay automatically saved to the `StarCraftII/Replays` folder (more details can be found [here](https://github.com/oxwhirl/smac#saving-and-watching-starcraft-ii-replays)).
-
-To enable batch running, we allow users to modify yaml configs in the command line. For each training command, users specify the special parameters in the commands with the same names as in the config files. For example, if you want to run HAPPO on SMAC tasks under three random seeds. You can customize the configs and replace `train.sh` with the following commands:
-
-```shell
-for seed in $(seq 1 3)
-do
-	python train.py --algo happo --env smac --exp_name test --seed $seed
-done
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_7x7_2box_ft_v2 ^
+  --dim_room [7,7] --num_boxes 2 --max_steps 400 ^
+  --timeout_penalty 10.0 ^
+  --hidden_sizes [256,256] --lr 0.0001 --critic_lr 0.0001 ^
+  --entropy_coef 0.2 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --actor_num_mini_batch 4 ^
+  --critic_num_mini_batch 4 ^
+  --torch_threads 2 ^
+  --num_env_steps 10000000 ^
+  --model_dir "<1box_model_dir>"
 ```
 
+**Stage 2 — lower entropy and learning rate to stabilize:**
 
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_7x7_2box_ft_v4 ^
+  --dim_room [7,7] --num_boxes 2 --max_steps 400 ^
+  --timeout_penalty 10.0 ^
+  --hidden_sizes [256,256] --lr 0.00003 --critic_lr 0.00003 ^
+  --entropy_coef 0.03 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --actor_num_mini_batch 4 ^
+  --critic_num_mini_batch 4 ^
+  --torch_threads 2 ^
+  --n_eval_rollout_threads 4 ^
+  --num_env_steps 5000000 ^
+  --model_dir "<v2_model_dir>"
+```
 
-### Applying to New Environments
+**Stage 3 — final convergence:**
 
-If you want to apply HA series algorithms to solve new tasks, you need to implement environment interfaces, following the examples of the seven environments provided. A simplest interface may look like:
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_7x7_2box_ft_v6 ^
+  --dim_room [7,7] --num_boxes 2 --max_steps 400 ^
+  --timeout_penalty 10.0 ^
+  --hidden_sizes [256,256] --lr 0.00003 --critic_lr 0.00003 ^
+  --entropy_coef 0.02 ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --actor_num_mini_batch 4 ^
+  --critic_num_mini_batch 4 ^
+  --torch_threads 2 ^
+  --n_eval_rollout_threads 4 ^
+  --num_env_steps 5000000 ^
+  --model_dir "<v4_model_dir>"
+```
+
+Expected final result for 7×7-2box: final training episodes reach ~0 to +8 reward; average eval reward is around -8 to -12 with high variance due to random room difficulty.
+
+---
+
+## 5. Evaluation
+
+To run a deterministic evaluation of a saved checkpoint without further training, use the `--eval True` flag:
+
+```bash
+python examples/train.py --algo happo --env sokoban --exp_name sokoban_7x7_2box_eval ^
+  --dim_room [7,7] --num_boxes 2 --max_steps 400 ^
+  --timeout_penalty 10.0 ^
+  --hidden_sizes [256,256] ^
+  --n_rollout_threads 4 ^
+  --episode_length 100 ^
+  --model_dir "<model_dir>" ^
+  --eval True
+```
+
+This loads the model, runs `eval_episodes` (default 20) episodes, and prints the average episode reward.
+
+You can also check `progress.txt` directly:
+
+```bash
+type results\sokoban\TwoPlayerSokoban-7x7-2boxes\happo\sokoban_7x7_2box_ft_v6\seed-00001-*\progress.txt
+```
+
+---
+
+## 6. Visualization
+
+### 6.1 Plot Learning Curves
+
+A helper script is provided at `plot_curves.py`. Edit the script to point to your result paths, then run:
+
+```bash
+python plot_curves.py
+```
+
+This produces PDF figures in `icml2022/figures/` comparing different room sizes and training lengths.
+
+If you want a quick custom plot from a single `progress.txt`:
 
 ```python
-class Env:
-    def __init__(self, args):
-        self.env = ...
-        self.n_agents = ...
-        self.share_observation_space = ...
-        self.observation_space = ...
-        self.action_space = ...
+import matplotlib.pyplot as plt
 
-    def step(self, actions):
-        return obs, state, rewards, dones, info, available_actions
+steps, rewards = [], []
+with open("results/sokoban/.../progress.txt") as f:
+    for line in f:
+        s, r = line.strip().split(",")
+        steps.append(int(s))
+        rewards.append(float(r))
 
-    def reset(self):
-        return obs, state, available_actions
-
-    def seed(self, seed):
-        pass
-
-    def render(self):
-        pass
-
-    def close(self):
-        self.env.close()
+plt.plot(steps, rewards)
+plt.xlabel("Environment steps")
+plt.ylabel("Average episode return")
+plt.title("7×7-2box HAPPO training")
+plt.grid(True)
+plt.savefig("learning_curve.png", dpi=150)
 ```
 
-The purpose of interface is to *hide environment-specific details and expose a unified interaction protocol, so that other modules could process data uniformly*.
+### 6.2 Render a Trained Policy to GIF
 
-You may also want to produce continuous logging output during training. If you intend to use an on-policy algorithm, you need to implement a logger for your environment. The simplest logger can inherit from `BaseLogger` in `harl/common/base_logger.py` and implement the `get_task_name` function. More customised logging requirements can be fulfilled by extending or overriding more functions. We recommend referring to the existing loggers in each environment directory to get to know how it is written. If an off-policy algorithm is used, you can directly customise logging by modifying the off-policy runner code. In the end, please register the logger (if any), add a yaml config file, and add necessary code to `examples/train.py`, `harl/utils/configs_tool.py`, and `harl/utils/envs_tool.py`. Again, following the existing seven environment examples will be convenient.
+Use `examples/render_sokoban_to_gif.py` to generate a GIF of the trained policy playing:
 
-After these steps, you can apply the algorithms immediately as above.
-
-
-
-### Application Scope of Algorithms
-
-|        | Continuous action space | Discrete action space | Multi Discrete action space |
-| :----: | :---------------------: | :-------------------: | :-------------------------: |
-| HAPPO  |            √            |           √           |              √              |
-| HATRPO |            √            |           √           |                             |
-| HAA2C  |            √            |           √           |              √              |
-| HADDPG |            √            |                       |                             |
-| HATD3  |            √            |                       |                             |
-| HAD3QN |                         |           √           |                             |
-| HASAC  |            √            |           √           |              √              |
-| MAPPO  |            √            |           √           |              √              |
-| MADDPG |            √            |                       |                             |
-| MATD3  |            √            |                       |                             |
-
-
-
-## Performance on Cooperative MARL Benchmarks
-
-### MPE
-
-<div align="center">
-  <img src="./assets/mpe_learning_curve.jpg" width="100%"/>
-</div>
-
-### MAMuJoCo
-
-HAPPO, HADDPG, and HATD3 outperform MAPPO, MADDPG, and MATD3; HAPPO and HATD3 are the most effective methods for heterogeneous-agent cooperation tasks.
-
-<div align="center">
-  <img src="./assets/mamujoco_on_policy_learning_curve.jpg" width="100%"/>
-</div>
-
-<div align="center">
-  <img src="./assets/mamujoco_off_policy_learning_curve.jpg" width="100%"/>
-</div>
-<div align="center">
-  <img src="./assets/Humanoid-v2_17x1_learning_curve.jpg" width="40%"/>
-</div>
-
-### SMAC & SMACv2
-
-HAPPO and HATRPO are comparable to or better than MAPPO and QMIX in SMAC and SMACv2, demonstrating their capability in mostly homogeneous-agent settings.
-
-<div align="center">
-  <img src="./assets/smac-winrates.png" width="100%"/>
-</div>
-
-<div align="center">
-  <img src="./assets/smac_learning_curve.jpg" width="100%"/>
-</div>
-
-### GRF
-
-HAPPO consistently outperforms MAPPO and QMIX on GRF, and the performance gap increases as the number and heterogeneity of agents increase.
-
-<div align="center">
-  <img src="./assets/grf-scorerates.png" width="50%"/>
-</div>
-<div align="center">
-  <img src="./assets/football_learning_curve.jpg" width="100%"/>
-</div>
-
-### Bi-DexterousHands
-
-HAPPO consistently outperforms MAPPO, and is also better than the single-agent baseline PPO, while also showing less variance.
-
-<div align="center">
-  <img src="./assets/dexhands_learning_curve.jpg" width="100%"/>
-</div>
-
-*The experiment results of HASAC can be found at https://sites.google.com/view/meharl*
-
-## Citation
-
-This repository is affiliated with [Peking University](https://www.pku.edu.cn//) and [BIGAI](https://www.bigai.ai/). If you find our paper or this repository helpful in your research or project, please consider citing our works using the following BibTeX citation:
-
-```tex
-@article{JMLR:v25:23-0488,
-  author  = {Yifan Zhong and Jakub Grudzien Kuba and Xidong Feng and Siyi Hu and Jiaming Ji and Yaodong Yang},
-  title   = {Heterogeneous-Agent Reinforcement Learning},
-  journal = {Journal of Machine Learning Research},
-  year    = {2024},
-  volume  = {25},
-  number  = {32},
-  pages   = {1--67},
-  url     = {http://jmlr.org/papers/v25/23-0488.html}
-}
+```bash
+python examples/render_sokoban_to_gif.py ^
+  --config "results/sokoban/TwoPlayerSokoban-7x7-2boxes/happo/sokoban_7x7_2box_ft_v6/seed-00001-*/config.json" ^
+  --model_dir "results/sokoban/TwoPlayerSokoban-7x7-2boxes/happo/sokoban_7x7_2box_ft_v6/seed-00001-*/models" ^
+  --output sokoban_7x7_2box_demo.gif ^
+  --render_episodes 1 ^
+  --fps 4
 ```
 
-```tex
-@inproceedings{
-liu2024maximum,
-title={Maximum Entropy Heterogeneous-Agent Reinforcement Learning},
-author={Jiarong Liu and Yifan Zhong and Siyi Hu and Haobo Fu and QIANG FU and Xiaojun Chang and Yaodong Yang},
-booktitle={The Twelfth International Conference on Learning Representations},
-year={2024},
-url={https://openreview.net/forum?id=tmqOhBC4a5}
+This creates `sokoban_7x7_2box_demo.gif` showing the two agents solving a room.
+
+### 6.3 TensorBoard
+
+Training metrics are logged to TensorBoard:
+
+```bash
+tensorboard --logdir results/sokoban
+```
+
+Open `http://localhost:6006` to view reward curves, value loss, policy entropy, etc.
+
+---
+
+## 7. Results Summary
+
+| Task | Final train reward | Best single episode | Notes |
+|------|-------------------|---------------------|-------|
+| 5×5-1box | ~+11 | ~+12 | Converges quickly, easy baseline |
+| 5×5-2box | ~+12 | ~+13 | Slightly harder, still converges fast |
+| 7×7-1box | ~+10 to +11 (eval) | ~+11 | Requires ~5M steps |
+| 7×7-2box | ~0 to +8 (best), ~-10 (eval avg) | ~+11 | Hard; curriculum from 7×7-1box essential |
+
+Key findings:
+- `timeout_penalty=10` is critical for hard levels; without it the agent learns to timeout.
+- High entropy (`0.2`) is needed early in `7×7-2box` fine-tuning; lower it (`0.02–0.05`) for final convergence.
+- `7×7-2box` requires roughly **20–25M total environment steps** from the `7×7-1box` checkpoint.
+- On a single 5060, keep `n_rollout_threads=4`, `hidden_sizes=[256,256]`, and use `actor_num_mini_batch=4` to stay within 8 GB VRAM.
+
+---
+
+## 8. Troubleshooting
+
+### GPU out of memory
+- Reduce `n_rollout_threads` to 4
+- Use `hidden_sizes [128,128]` instead of `[256,256]`
+- Set `torch_threads 2`
+- Reduce `n_eval_rollout_threads` to 4
+
+### Room generation warnings (`Generated Model with score == 0`)
+These are normal retries from `gym-sokoban` when a randomly generated room is invalid. Training continues automatically.
+
+### Train reward much better than eval reward
+This indicates the policy has partially memorized training room layouts. Solutions:
+- Continue training with lower entropy to improve generalization
+- Use CNN backbone (`--use_cnn True`) for better spatial generalization
+- Increase parallel environments if hardware allows
+
+### 7×7-2box does not improve from 7×7-1box fine-tuning
+If the 1box model is not converged enough, 2box transfer fails. Make sure 1box eval reward reaches ~+10 before fine-tuning.
+
+---
+
+## 9. File Reference
+
+| File | Purpose |
+|------|---------|
+| `examples/train.py` | Main training/evaluation script |
+| `harl/envs/sokoban/sokoban_env.py` | Sokoban wrapper for HARL |
+| `harl/configs/envs_cfgs/sokoban.yaml` | Default Sokoban config |
+| `examples/render_sokoban_to_gif.py` | Render trained policy to GIF |
+| `plot_curves.py` | Plot learning curves for report |
+
+---
+
+## 10. Citation
+
+This demo is built on top of the HARL framework:
+
+```bibtex
+@article{harl,
+  title={Heterogeneous-Agent Reinforcement Learning},
+  author={PKU-MARL},
+  journal={GitHub repository},
+  year={2023},
+  url={https://github.com/PKU-MARL/HARL}
 }
 ```
