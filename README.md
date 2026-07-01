@@ -1,4 +1,4 @@
-# HAPPO on Two-Player Sokoban
+# HARL on Two-Player Sokoban
 
 This repository implements and studies the **HAPPO** (Heterogeneous-Agent Proximal Policy Optimization) algorithm from the HARL framework on a **two-player Sokoban** environment. Two cooperative agents are trained to push all boxes onto target locations in randomly generated grid rooms.
 
